@@ -1,0 +1,3 @@
+# Plain static site: no build step, publish the repository root as it is.
+[build]
+  publish = "."

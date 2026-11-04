@@ -1,0 +1,70 @@
+{
+ "source": "1st Edition / OSRIC Automated Charactersheet v2.2 by FlacoAlto",
+ "sourceUrl": "https://flacoalto.itch.io/1st-edition-osric-automated-charactersheet",
+ "pages": [
+  {
+   "id": "cs",
+   "title": "Character Sheet",
+   "w": 898
+  },
+  {
+   "id": "cleric",
+   "title": "Cleric",
+   "w": 750
+  },
+  {
+   "id": "druid",
+   "title": "Druid",
+   "w": 731
+  },
+  {
+   "id": "fighter",
+   "title": "Fighter",
+   "w": 748
+  },
+  {
+   "id": "ranger",
+   "title": "Ranger",
+   "w": 748
+  },
+  {
+   "id": "paladin",
+   "title": "Paladin",
+   "w": 748
+  },
+  {
+   "id": "mu",
+   "title": "MU",
+   "w": 731
+  },
+  {
+   "id": "ill",
+   "title": "Ill",
+   "w": 731
+  },
+  {
+   "id": "thief",
+   "title": "Thief",
+   "w": 731
+  },
+  {
+   "id": "assassin",
+   "title": "Assassin",
+   "w": 731
+  },
+  {
+   "id": "monk",
+   "title": "Monk",
+   "w": 748
+  },
+  {
+   "id": "hire",
+   "title": "Hirelings",
+   "w": 1735
+  },
+  {
+   "id": "license",
+   "title": "License"
+  }
+ ]
+}
