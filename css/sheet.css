@@ -304,3 +304,17 @@ body.in-obr .bar button { cursor: pointer; }
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
   font-weight: 600;
 }
+/* ------------------------------------------------------------ emphasised values (Character Sheet) */
+/* Fields are picked by their cell reference (each field's aria-label is its ref). */
+#pg-cs { --em: #0b6e99; } /* colour of the emphasised values (#044568 is the sheet's darker blue) */
+/* saving throws, base column */
+#pg-cs .f:is([aria-label="AO8"], [aria-label="AO10"], [aria-label="AO11"], [aria-label="AO13"], [aria-label="AO15"], [aria-label="AO17"]) { color: var(--em); font-weight: 700; font-size: 21.33px; }
+/* hit points: current and max. total */
+#pg-cs .f:is([aria-label="U21"], [aria-label="Y21"]) { color: var(--em); font-weight: 700; font-size: 30.67px; }
+/* AC: already bold and big, and "5 [15]" fills its box, so only the colour */
+#pg-cs .f[aria-label="AM20"] { color: var(--em); }
+/* BTHB */
+#pg-cs .f[aria-label="J26"] { color: var(--em); font-weight: 700; font-size: 24px; }
+/* first weapon row (main weapon): hit adj., magic adj., dam. adj., damage S/M */
+#pg-cs .f:is([aria-label="U30"], [aria-label="W30"], [aria-label="Z30"], [aria-label="AB30"]) { color: var(--em); font-weight: 700; font-size: 18.67px; }
+
