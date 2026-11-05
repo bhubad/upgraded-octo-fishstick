@@ -2,17 +2,19 @@
 
 An Owlbear Rodeo extension that shows an editable character sheet for a character token. It has the same pages,
 fields, colours and layout as the **1st Edition / OSRIC Automated Charactersheet v2.2 by FlacoAlto**
-(<https://flacoalto.itch.io/1st-edition-osric-automated-charactersheet>), but no formulas and no dropdowns:
-every field is typed in by hand.
+(<https://flacoalto.itch.io/1st-edition-osric-automated-charactersheet>), but no dropdowns and only one kind of
+formula: every field is typed in by hand, except the weights of carried items, which are added up for you.
 
-Pages: Character Sheet, Cleric, Druid, Fighter, Ranger, Paladin, MU, Ill, Thief, Assassin, Monk, Hirelings, License.
-Left out: the spreadsheet's Instructions, Character Options/Assumptions, Bard, 2-Weapon, Weaponless, Tables and
-OSRIC Tables tabs.
+Pages: Character Sheet, Cleric, Druid, Fighter, Ranger, Paladin, MU, Ill, Thief, Assassin, Monk, Animals, License.
+Left out: the spreadsheet's Instructions, Character Options/Assumptions, Bard, 2-Weapon, Weaponless, Hirelings, Tables
+and OSRIC Tables tabs. **Animals** (animals of burden) is not in the spreadsheet: it is built from the Character
+Sheet's item lists, with a Name and an Enc. Total for each of three animals and two lists each, without the money.
 
 Changes from the spreadsheet's look: a neutral blue-grey colour scheme; the right half of the Character Sheet
 (movement, money, carried items) and the Known Spells list of MU and Ill are placed under the rest of their page; the
 class pages are 10 % narrower than in the spreadsheet (text that no longer fits a cell is shrunk slightly), so they fit a
-half-width sheet.
+half-width sheet; the two grey *container* captions are fields, so you can name those containers; each Total Weight
+has a *manual* field next to it; the note under the item lists gives the units (lb, 10 coins = 1 lb).
 
 ## 1. Put the files online
 
@@ -53,12 +55,24 @@ already sends the CORS header Owlbear needs. Cloudflare Pages reads the same `_h
   scene and the tokens that don't have one yet.
 - Click a field and type. Coloured cells, white boxes and every former formula or dropdown are plain fields.
   Click any empty spot to write there, as in the spreadsheet.
+- **Weights** (Character Sheet and Animals) are calculated, in pounds:
+  - **tW = # × Man**, or **# × Auto** when Man is empty. Auto is not looked up; type it in like Man. An empty # counts
+    as 1; numbers can be written as 2, 0.5, 0,5, 1/2, 1½, 1,000, 1 000 or "5 lb", and a dash (—) counts as 0.
+  - **Total Weight** is the sum of the tW column. To write a list's weight yourself, type it into the *manual* field
+    next to it; that is used instead (the calculated one is then struck out).
+  - **Enc. Total** = the four Total Weights + the coins *on person* (pp, gp, ep, sp, cp; 10 coins = 1 lb, as in
+    OSRIC 3). Coins *stored away* don't count. On the Animals page it is the animal's two lists.
+  - The numbers update as you type and when someone else changes the sheet. Clicking a calculated cell
+    recalculates the page (it flashes), and so does switching pages or coming back to the sheet window.
+- **Renaming:** click **✎** next to an entry in the extension's panel (or double-click its name) to change the name shown
+  there, e.g. "Andrii's Char" → "Andrii – Brother Hal". Enter saves, Esc cancels, an empty name goes back to the token's
+  name. The token itself keeps its name; the sheet's title uses the new name until the character has a name.
 - A small red corner means the cell has a note from the spreadsheet: hover to read it.
 - The **+ / −** buttons on the top and left edges show or hide grouped columns and rows, like in the
   spreadsheet (HP by level, Psionics).
 - **Pages** hides the tabs a character doesn't use (e.g. the other classes). This is saved with the sheet.
 - **Zoom**: −/+ or click the percentage to switch between *Fit* and 100 %. *Fit* uses one scale for all pages (the
-  one that fits the Character Sheet, at most 120 %); only the wide Hirelings page is shrunk to fit.
+  one that fits the Character Sheet, at most 120 %).
 - **⋯ → Export / Import** saves the sheet as a JSON file or loads one. Use it to back up a sheet or move it to a token
   in another scene or room.
 - **⋯ → Import → .xlsx** reads a filled-in copy of the v2.2 spreadsheet (Google Sheets: *File → Download →
@@ -66,8 +80,9 @@ already sends the CORS header Owlbear needs. Cloudflare Pages reads the same `_h
 
 ### Where the data lives
 
-Each sheet is stored in its token's metadata (key `osric-character-sheet/sheet`), so everyone in the room sees the same
-sheet and edits appear live for everyone. Tokens belong to a scene, so a sheet is tied to that token in that scene.
+Each sheet is stored in its token's metadata (key `osric-character-sheet/sheet`; the Heroes mark and the name from ✎ are
+`osric-character-sheet/hero` and `osric-character-sheet/label`), so everyone in the room sees the same sheet and edits
+appear live for everyone. Calculated weights are not stored; every browser works them out from the values. Tokens belong to a scene, so a sheet is tied to that token in that scene.
 If the GM restricts editing of tokens, players can't save changes to tokens they aren't allowed to edit; the sheet
 then shows a warning. Each browser also keeps a local backup copy of every sheet it opened.
 
@@ -87,7 +102,7 @@ Opening `sheet.html` directly (outside Owlbear) gives a preview that saves only 
 | `fonts/` | TeX Gyre Heros Condensed, used when Aptos Narrow isn't installed (GUST Font License) |
 | `tools/gen.py` | Regenerates `layouts/` from the template: `python3 tools/gen.py template.xlsx .` (needs openpyxl) |
 | `index.html` | Front page with the install link and a setup check |
-| `_headers`, `vercel.json`, `.nojekyll` | Hosting settings |
+| `_headers`, `netlify.toml`, `vercel.json`, `.nojekyll` | Hosting settings |
 
 ## Credits
 

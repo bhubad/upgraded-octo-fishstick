@@ -2,9 +2,9 @@
 import {
   KEY, HERO_KEY, POPOVER_ID, FORMAT, FORMAT_VERSION, VERSION, inOwlbear, loadOBR, whenReady, whenSceneReady,
   store, applyTheme, emptySheet, sheetStats, characterName, esc, openSheet, setHero, halfWidth, fullWidth,
-  defaultWin, MIN_W, MIN_H,
-} from "./common.js?v=1.2.0";
-import { readWorkbook } from "./xlsx-import.js?v=1.2.0";
+  defaultWin, MIN_W, MIN_H, displayName,
+} from "./common.js?v=1.4.0";
+import { readWorkbook } from "./xlsx-import.js?v=1.4.0";
 
 const params = new URLSearchParams(location.search);
 const IN_OBR = inOwlbear() || !!window.__OBR_MOCK__;
@@ -238,7 +238,7 @@ function onItemsChange(items) {
     app.gone = false;
     banner(null);
   }
-  setTokenName(item.name);
+  setTokenName(displayName(item, ""));
   setHeroButton(!!item.metadata[HERO_KEY]);
   const m = item.metadata[KEY];
   const stamp = (m && m.stamp) || null;
@@ -406,7 +406,7 @@ function fieldValue(node) {
 }
 
 function setFieldValue(node) {
-  if (node === document.activeElement) return;
+  if (node._calc || node === document.activeElement) return;
   const v = fieldValue(node);
   if (node._kind === K.CHECK) {
     if (node._box.checked !== v) node._box.checked = v;
@@ -467,6 +467,20 @@ function buildBlock(view, blk, index) {
       node._pid = pid;
       node._ref = ref;
       node._def = k === K.CHECK ? !!t : t === 0 || t == null ? "" : String(t);
+      const calc = view.layout.calc && view.layout.calc[ref];
+      if (calc && k === K.INPUT) {
+        // a calculated cell (weights): shown, not typed into; clicking it recalculates the page
+        node._calc = calc;
+        node.readOnly = true;
+        node.tabIndex = -1;
+        node.classList.add("calc");
+        node.addEventListener("click", () => {
+          recalc(view);
+          flash(node);
+        });
+      }
+      const ph = view.layout.ph && view.layout.ph[ref];
+      if (ph && k !== K.CHECK) node.placeholder = ph;
       view.fields.set(ref, node);
       setFieldValue(node);
       if (k !== K.CHECK) node.setAttribute("aria-label", ref);
@@ -522,7 +536,132 @@ function buildView(layout) {
   // values typed into empty (free) cells
   const vals = app.sheet.pages[pid] || {};
   for (const ref of Object.keys(vals)) if (!view.fields.has(ref)) addFree(view, ref, false, true);
+  describeCalc(view);
+  recalc(view);
   return view;
+}
+
+// ------------------------------------------------------------------ calculated cells (weights)
+// layout.calc: { ref: ["w", #, Man, Auto] }  tW = # × (Man, or Auto when Man is empty); empty # = 1
+//              { ref: ["sum", refs...] }       Total Weight = sum of the tW cells
+//              { ref: ["enc", per, coins, [[manual, total]...]] }
+//                  Enc. Total = the Total Weights (a manual weight typed next to one replaces it)
+//                  + the coins on person, `per` coins to the pound
+const FRACTIONS = { "½": "1/2", "¼": "1/4", "¾": "3/4", "⅓": "1/3", "⅔": "2/3", "⅛": "1/8" };
+
+/** Read a number the way people type it: 2, 0.5, 0,5, 1/2, 1 1/2, 1½, "5 lb", "x3", 1,000, 1 000; a dash means 0. */
+function parseAmount(raw) {
+  if (raw == null || typeof raw === "boolean") return null;
+  let t = String(raw).trim().replace(/^[x×*]\s*/i, "");
+  if (!t) return null;
+  if (/^[-–—]+$/.test(t)) return 0;
+  t = t.replace(/\s*([½¼¾⅓⅔⅛])/g, (_, f) => ` ${FRACTIONS[f]}`).trim();
+  let m = /^(\d+)\s+(\d+)\s*\/\s*(\d+)/.exec(t);
+  if (m) return +m[3] ? +m[1] + +m[2] / +m[3] : null;
+  m = /^(\d+)\s*\/\s*(\d+)/.exec(t);
+  if (m) return +m[2] ? +m[1] / +m[2] : null;
+  m = /^[-+]?\d{1,3}(?:[   ]\d{3})+(?:[.,]\d+)?(?![\d/])/.exec(t); // 1 000 or 2 500,5
+  if (m) return parseFloat(m[0].replace(/[   ]/g, "").replace(",", "."));
+  m = /^[-+]?\d{1,3}(?:,\d{3})+(?:\.\d+)?(?![\d,])/.exec(t); // 1,000 or 2,500.5
+  if (m) return parseFloat(m[0].replace(/,/g, ""));
+  m = /^[-+]?(?:\d+(?:[.,]\d*)?|[.,]\d+)/.exec(t); // 2, 0.5, 0,5, .5
+  if (m) return parseFloat(m[0].replace(",", "."));
+  return null;
+}
+
+function formatAmount(x) {
+  if (x == null || !Number.isFinite(x)) return "";
+  const r = Math.round(x * 100) / 100;
+  return String(r === 0 ? 0 : r);
+}
+
+/** Tooltips of the calculated cells and of the manual weights next to the Total Weights. */
+function describeCalc(view) {
+  const calc = view.layout.calc || {};
+  const again = " Click to recalculate.";
+  for (const [ref, f] of Object.entries(calc)) {
+    const node = view.fields.get(ref);
+    if (!node || !node._calc) continue;
+    if (f[0] === "w") node.title = "Calculated: # × Man (or × Auto when Man is empty). An empty # counts as 1." + again;
+    else if (f[0] === "sum") node.title = "Calculated: the sum of the tW column." + again;
+    else if (f[0] === "enc") {
+      const coins = f[2].length ? ` + the coins on person (${f[1]} coins = 1 lb)` : "";
+      node.title = `Calculated: the Total Weights${coins}. Where a manual weight is typed next to a Total Weight, that is used instead.${again}`;
+      for (const [man] of f[3]) {
+        const m = man && view.fields.get(man);
+        if (m) m.title = "Manual weight: if you type one here, Enc. Total uses it instead of the calculated Total Weight next to it.";
+      }
+    }
+  }
+}
+
+function recalc(view) {
+  const calc = view && !view.text && view.layout.calc;
+  if (!calc) return;
+  const input = (ref) => {
+    const node = view.fields.get(ref);
+    return node ? fieldValue(node) : getStored(view.pid, ref);
+  };
+  const cache = new Map();
+  const value = (ref) => {
+    if (!calc[ref]) return parseAmount(input(ref));
+    if (cache.has(ref)) return cache.get(ref);
+    cache.set(ref, null); // guards against loops
+    const f = calc[ref];
+    let out = null;
+    const add = (x) => {
+      if (x != null) out = (out || 0) + x;
+    };
+    if (f[0] === "w") {
+      const man = value(f[2]);
+      const w = man != null ? man : value(f[3]);
+      if (w != null) {
+        const n = value(f[1]);
+        out = (n == null ? 1 : n) * w;
+      }
+    } else if (f[0] === "sum") {
+      for (const r of f.slice(1)) add(value(r));
+    } else if (f[0] === "enc") {
+      const [, per, coins, parts] = f;
+      for (const [man, total] of parts) {
+        const m = man ? value(man) : null;
+        add(m != null ? m : value(total));
+      }
+      for (const c of coins) {
+        const n = value(c);
+        if (n != null) add(n / (per || 1));
+      }
+    }
+    cache.set(ref, out);
+    return out;
+  };
+  for (const ref of Object.keys(calc)) {
+    const node = view.fields.get(ref);
+    if (!node || !node._calc) continue;
+    const text = formatAmount(value(ref));
+    if (node.value !== text) node.value = text;
+    const f = calc[ref];
+    if (f[0] === "enc") {
+      // a Total Weight that is replaced by a manual weight is shown dimmed
+      for (const [man, total] of f[3]) {
+        const t = view.fields.get(total);
+        if (t) t.classList.toggle("unused", !!man && value(man) != null);
+      }
+    }
+  }
+}
+
+/** Recalculate the page shown, e.g. when the sheet window gets the focus again. */
+function recalcCurrent() {
+  recalc(app.views[app.current]);
+}
+
+function flash(node) {
+  node.classList.remove("flash");
+  void node.offsetWidth; // restart the animation
+  node.classList.add("flash");
+  clearTimeout(node._flashTimer);
+  node._flashTimer = setTimeout(() => node.classList.remove("flash"), 700);
 }
 
 function buildTextView(layout) {
@@ -538,7 +677,7 @@ function buildTextView(layout) {
     }
   }
   const credit = el("p", "credit");
-  credit.innerHTML = `Layout taken from the <a href="${esc(app.index.sourceUrl)}" target="_blank" rel="noopener">${esc(app.index.source)}</a>. This extension only reproduces its fields; it does no calculations.`;
+  credit.innerHTML = `Layout taken from the <a href="${esc(app.index.sourceUrl)}" target="_blank" rel="noopener">${esc(app.index.source)}</a>. This extension reproduces its fields; the only things it calculates are the weights and Enc. Totals on the Character Sheet and Animals pages.`;
   box.appendChild(credit);
   page.appendChild(box);
   return { pid: layout.id, layout, page, text: true, fields: new Map(), blocks: [] };
@@ -742,7 +881,7 @@ function onFreeBlur(view, b, e) {
 function onFieldInput(e) {
   let node = e.target;
   if (node._owner) node = node._owner;
-  if (!node._ref) return;
+  if (!node._ref || node._calc) return;
   if (node._kind === K.CHECK) {
     const v = node._box.checked;
     setStored(node._pid, node._ref, v === !!node._def ? null : v);
@@ -752,6 +891,7 @@ function onFieldInput(e) {
     setStored(node._pid, node._ref, v === def ? null : v);
   }
   if (node._pid === "cs" && node._ref === "N1") updateTitle();
+  recalc(app.views[node._pid]);
 }
 
 function refreshView(view) {
@@ -767,6 +907,7 @@ function refreshView(view) {
   for (const ref of Object.keys(vals)) {
     if (!view.fields.has(ref) && !view.blocks.some((b) => b.free.has(ref))) addFree(view, ref, false);
   }
+  recalc(view);
 }
 
 function refreshAll() {
@@ -804,6 +945,7 @@ async function showPage(pid) {
     }
   }
   for (const v of Object.values(app.views)) v.page.classList.toggle("on", v === view);
+  recalc(view);
   applyZoom();
   scroller.scrollTop = view.scroll ? view.scroll.top : 0;
   scroller.scrollLeft = view.scroll ? view.scroll.left : 0;
@@ -1051,7 +1193,7 @@ async function importFromXlsx(file) {
       blk.cells.forEach((rec, i) => {
         const [r, c, rs, cs, , k, ref, t] = rec;
         for (let y = r; y < r + rs; y++) for (let x = c; x < c + cs; x++) occ[y * C + x] = i;
-        if (k >= 2 && ref) kinds.set(ref, { k, def: k === 4 ? !!t : t === 0 || t == null ? "" : String(t) });
+        if (k >= 2 && ref && !(layout.calc && layout.calc[ref])) kinds.set(ref, { k, def: k === 4 ? !!t : t === 0 || t == null ? "" : String(t) });
       });
       return { C, occ, colIndex: new Map(blk.colIds.map((c, i) => [c, i])), rowIndex: new Map(blk.rowIds.map((r, i) => [r, i])) };
     });
@@ -1169,7 +1311,8 @@ function bindToolbar() {
     }
   });
   window.addEventListener("pagehide", () => flush());
-  document.addEventListener("visibilitychange", () => document.visibilityState === "hidden" && flush());
+  document.addEventListener("visibilitychange", () => (document.visibilityState === "hidden" ? flush() : recalcCurrent()));
+  window.addEventListener("focus", recalcCurrent);
 }
 
 // ------------------------------------------------------------------ the sheet window (inside Owlbear)
@@ -1380,7 +1523,7 @@ async function bootOBR() {
     setStatus("error", "Token not found");
     return true;
   }
-  setTokenName(item.name);
+  setTokenName(displayName(item, ""));
   setHeroButton(!!item.metadata[HERO_KEY]);
   const m = item.metadata[KEY];
   app.stamp = (m && m.stamp) || null;

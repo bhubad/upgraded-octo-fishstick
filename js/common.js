@@ -5,10 +5,11 @@ export const KEY = `${EXT_ID}/sheet`; // item metadata key that holds a sheet
 export const POPOVER_ID = `${EXT_ID}/sheet-popover`;
 export const MENU_ID = `${EXT_ID}/context-menu`;
 export const HERO_KEY = `${EXT_ID}/hero`; // item metadata flag: this token is a player character
+export const LABEL_KEY = `${EXT_ID}/label`; // item metadata: the name shown for the token in the extension's list
 export const PREFS_KEY = "osric-sheet:prefs";
 export const FORMAT = "osric-character-sheet";
 export const FORMAT_VERSION = 1;
-export const VERSION = "1.2.0"; // also used in the ?v= of every file reference, so updates are not mixed with cached files
+export const VERSION = "1.4.0"; // also used in the ?v= of every file reference, so updates are not mixed with cached files
 
 // The Owlbear Rodeo SDK (MIT licence), loaded as an ES module from a CDN, with a fallback.
 const SDK_URLS = [
@@ -209,6 +210,23 @@ export async function setHero(OBR, itemId, on) {
     for (const item of items) {
       if (on) item.metadata[HERO_KEY] = true;
       else delete item.metadata[HERO_KEY];
+    }
+  });
+}
+
+/** The name shown for a token in the extension: the name given in the list, else the token's own name. */
+export function displayName(item, fallback = "Unnamed token") {
+  const label = item && item.metadata && item.metadata[LABEL_KEY];
+  return (typeof label === "string" && label.trim()) || (item && item.name) || fallback;
+}
+
+/** Set (or, with an empty name, remove) the name shown for a token in the extension. */
+export async function setLabel(OBR, itemId, label) {
+  const v = typeof label === "string" ? label.trim() : "";
+  await OBR.scene.items.updateItems([itemId], (items) => {
+    for (const item of items) {
+      if (v) item.metadata[LABEL_KEY] = v;
+      else delete item.metadata[LABEL_KEY];
     }
   });
 }

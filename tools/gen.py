@@ -3,8 +3,14 @@
 
 Each page becomes a grid: column widths, row heights, outline groups, and a list of
 elements (labels, inputs, checkboxes, decoration) with deduplicated styles.
-No formulas and no dropdowns are carried over: every computed or dropdown cell becomes
-a plain editable field.
+No dropdowns are carried over, and formulas only where a page asks for them (calc=True:
+the item weights, tW = # x Man-or-Auto, their Total Weight sums, and Enc. Total = the Total
+Weights + coins on person at 10 per lb). Every other computed or dropdown cell becomes a plain
+editable field.
+
+Two changes are made to the template before it is read (see "template changes" below): each
+Total Weight row gets a "manual" field next to the calculated total, and an "Animals" sheet for
+animals of burden is built from the Character Sheet's item lists.
 
 usage: gen.py template.xlsx out_dir
 """
@@ -16,7 +22,12 @@ import sys
 import zipfile
 import xml.etree.ElementTree as ET
 
+from copy import copy
+
 import openpyxl
+from openpyxl.cell.cell import MergedCell
+from openpyxl.formula.translate import Translator
+from openpyxl.styles import Alignment, Border, Side
 from openpyxl.styles.colors import COLOR_INDEX
 from openpyxl.utils import get_column_letter as L, column_index_from_string as CI
 from openpyxl.utils.cell import range_boundaries
@@ -28,7 +39,9 @@ SRC, OUT = sys.argv[1], sys.argv[2]
 # policy "blank": dropdown cells start empty (the template has example data there).
 PAGES = [
     # The Character Sheet is split in two blocks: its right half (movement, money, items) goes under the left half.
-    ("Character Sheet", "cs", "Character Sheet", dict(policy="blank", blocks=[dict(cols=("A", "BA")), dict(cols=("BC", "CS"), maxRow=56)])),
+    # calc: item weights are added up. editableLabels: these captions become fields (with the caption as placeholder).
+    ("Character Sheet", "cs", "Character Sheet", dict(policy="blank", blocks=[dict(cols=("A", "BA")), dict(cols=("BC", "CS"), maxRow=56)],
+                                                       calc=True, editableLabels={"container"})),
     ("Cleric", "cleric", "Cleric", dict(policy="keep", hscale=0.9)),
     ("Druid", "druid", "Druid", dict(policy="keep", hscale=0.9)),
     ("Fighter", "fighter", "Fighter", dict(policy="keep", hscale=0.9)),
@@ -40,9 +53,12 @@ PAGES = [
     ("Thief", "thief", "Thief", dict(policy="keep", hscale=0.9)),
     ("Assassin", "assassin", "Assassin", dict(policy="keep", hscale=0.9)),
     ("Monk", "monk", "Monk", dict(policy="keep", hscale=0.9, maxCol="AR")),
-    ("Hirelings", "hire", "Hirelings", dict(policy="blank", dataText={"Mage", "Porter", "2gp/month", "1/2 share", "1gp/month"})),
+    # not in the template: built by build_animals() from the Character Sheet's item lists
+    ("Animals", "animals", "Animals", dict(policy="blank", blocks=[dict(cols=("BC", "CS"))], calc=True, editableLabels={"container"})),
     ("License", "license", "License", dict(text=True)),
 ]
+ANIMALS = 3          # animals of burden on the Animals page
+COINS_PER_LB = 10    # OSRIC 3: ten coins weigh one pound
 
 DARK = {"000000", "0C0C0C"}
 TITLE_FILLS = {"D8D8D8", "D9D9D9", "F2F2F2", "F3F3F3"}
@@ -224,6 +240,130 @@ def clean_note(text):
 wb = openpyxl.load_workbook(SRC)
 wbv = openpyxl.load_workbook(SRC, data_only=True)
 
+# ---------------------------------------------------------------- template changes
+FIELD_HINTS = {}    # sheet -> {ref: grey hint shown in an empty field}
+MANUAL_TOTALS = {}  # sheet -> {ref of a Total Weight: ref of the manual field next to it}
+MEDIUM = Side(style="medium", color="FF000000")
+
+
+def add_manual_field(ws, row, label_col, total_col):
+    """Shorten the 'Total Weight' caption by 4 columns and put a field there, between the caption
+    and the calculated total. A weight typed into it is used for Enc. Total instead of the total."""
+    lc, tc = CI(label_col), CI(total_col)
+    mc = tc - 4
+    ws.unmerge_cells(start_row=row, end_row=row, start_column=lc, end_column=tc - 1)
+    ws.merge_cells(start_row=row, end_row=row, start_column=lc, end_column=mc - 1)
+    field = ws.cell(row, mc)
+    field._style = copy(ws.cell(row, tc)._style)  # looks like the total next to it
+    field.border = Border(left=MEDIUM, bottom=MEDIUM)
+    ws.merge_cells(start_row=row, end_row=row, start_column=mc, end_column=tc - 1)
+    FIELD_HINTS.setdefault(ws.title, {})[f"{L(mc)}{row}"] = "manual"
+    MANUAL_TOTALS.setdefault(ws.title, {})[f"{total_col}{row}"] = f"{L(mc)}{row}"
+
+
+CS_NOTE = "# = number of items, Man = manual entry, Auto = standard item weight, tW = total weight (lb)"
+
+cs_ws = wb["Character Sheet"]
+for _row in (36, 55):
+    add_manual_field(cs_ws, _row, "BC", "BT")
+    add_manual_field(cs_ws, _row, "BY", "CP")
+cs_ws["BC56"] = CS_NOTE + ", 10 coins = 1 lb"
+
+
+def build_animals(count):
+    """An 'Animals' sheet for animals of burden, made of the Character Sheet's own cells (so it has the
+    same look): per animal a Name row with its Enc. Total, and two item lists with editable names."""
+    src = wb["Character Sheet"]
+    ws = wb.create_sheet("Animals")
+    wbv.create_sheet("Animals")  # no cached values
+    c1, c2 = CI("BC"), CI("CS")
+    ws.sheet_format.defaultRowHeight = src.sheet_format.defaultRowHeight
+    ws.sheet_format.defaultColWidth = src.sheet_format.defaultColWidth
+    widths = {}  # (indexing column_dimensions would add entries to the template, so read them like build_page)
+    for k, d in src.column_dimensions.items():
+        for c in range(d.min or CI(k), (d.max or CI(k)) + 1):
+            widths[c] = d.width
+    for c in range(c1, c2 + 1):
+        if widths.get(c):
+            ws.column_dimensions[L(c)].width = widths[c]
+
+    def put(row, col, value):
+        cell = ws.cell(row, col)
+        if not isinstance(cell, MergedCell):
+            cell.value = value
+
+    def height(dst_row, src_row):
+        d = src.row_dimensions.get(src_row)
+        if d is not None and d.height:
+            ws.row_dimensions[dst_row].height = d.height
+
+    def copy_row(src_row, dst_row):
+        """Copy a row with its merges, styles and formulas (formulas moved to the new row)."""
+        for mr in src.merged_cells.ranges:
+            if mr.min_row == mr.max_row == src_row and mr.min_col >= c1 and mr.max_col <= c2:
+                ws.merge_cells(start_row=dst_row, end_row=dst_row, start_column=mr.min_col, end_column=mr.max_col)
+        for c in range(c1, c2 + 1):
+            s, d = src.cell(src_row, c), ws.cell(dst_row, c)
+            d._style = copy(s._style)
+            v = s.value
+            if isinstance(v, str) and v.startswith("="):
+                v = Translator(v, origin=s.coordinate).translate_formula(d.coordinate)
+            put(dst_row, c, v)
+        height(dst_row, src_row)
+
+    def paint(dst_row, a, b, src_row, sa, sb, value=None):
+        """Merge columns a..b of a new row and style them like the source range sa..sb
+        (first, middle and last cells, so the outer borders match)."""
+        ca, cb, sca, scb = CI(a), CI(b), CI(sa), CI(sb)
+        if cb > ca:
+            ws.merge_cells(start_row=dst_row, end_row=dst_row, start_column=ca, end_column=cb)
+        for c in range(ca, cb + 1):
+            sc = sca if c == ca else scb if c == cb else min(sca + 1, scb)
+            ws.cell(dst_row, c)._style = copy(src.cell(src_row, sc)._style)
+        put(dst_row, ca, value)
+
+    r = 1
+    paint(r, "BC", "CS", 1, "BC", "BX", "Animals of Burden")
+    height(r, 1)
+    r += 1
+    for k in range(count):
+        top, total = r, r + 19
+        # Name ............ | Enc. Total: [calc]
+        paint(top, "BC", "BF", 2, "BC", "BH", "Name")
+        paint(top, "BG", "BW", 2, "BI", "BL")
+        ws.cell(top, CI("BG")).alignment = Alignment(horizontal="left", vertical="center")
+        paint(top, "BX", "BX", 39, "BX", "BX")
+        paint(top, "BY", "CO", 2, "BC", "BH", "Enc. Total: ")
+        paint(top, "CP", "CS", 2, "BI", "BL", f"=SUM(BT{total},CP{total})")
+        height(top, 2)
+        # container names (no Coin Weight: animals carry no purse)
+        paint(top + 1, "BC", "BW", 37, "BC", "BW", "container")
+        paint(top + 1, "BX", "BX", 37, "BX", "BX")
+        paint(top + 1, "BY", "CS", 37, "BY", "CS", "container")
+        height(top + 1, 37)
+        # Item # Man Auto tW, 16 items, Total Weight [manual] [calc]
+        for i, src_row in enumerate(range(38, 56)):
+            copy_row(src_row, top + 2 + i)
+        for t in ("BT", "CP"):
+            m = L(CI(t) - 4)
+            FIELD_HINTS.setdefault(ws.title, {})[f"{m}{total}"] = "manual"
+            MANUAL_TOTALS.setdefault(ws.title, {})[f"{t}{total}"] = f"{m}{total}"
+        if k < count - 1:  # a thin grey strip between animals, like the one between the lists
+            paint(total + 1, "BC", "CS", 39, "BX", "BX")
+            ws.cell(total + 1, c1).border = Border(left=MEDIUM)
+            ws.cell(total + 1, c2).border = Border(right=MEDIUM)
+            ws.row_dimensions[total + 1].height = 6
+        r = total + 2
+    note = r - 1 if count else r
+    paint(note, "BC", "CS", 56, "BC", "CS", CS_NOTE)
+    for c in range(c1, c2 + 1):  # the note's bottom line (in the template it is a row lower)
+        cell = ws.cell(note, c)
+        cell.border = Border(left=cell.border.left, right=cell.border.right, top=cell.border.top, bottom=MEDIUM)
+    height(note, 56)
+
+
+build_animals(ANIMALS)
+
 DEFINED = {}
 for name, dn in wb.defined_names.items():
     DEFINED[name] = dn.attr_text
@@ -253,6 +393,7 @@ def build_page(sheet, pid, title, opts):
     ws = wb[sheet]
     wsv = wbv[sheet]
     policy = opts.get("policy", "keep")
+    placeholders = {}   # ref -> grey hint text of a caption that became a field
 
     # ---- columns / rows: excluded helpers vs collapsible outline groups
     colinfo = {}
@@ -465,6 +606,9 @@ def build_page(sheet, pid, title, opts):
                         kind, text = K_INPUT, (sval if policy == "keep" else "")
                     elif isinstance(v, str) and v in opts.get("dataText", ()):
                         kind = K_INPUT
+                    elif isinstance(v, str) and v.strip().lower() in opts.get("editableLabels", ()):
+                        kind = K_INPUT
+                        placeholders[f"{L(c)}{r}"] = v.strip()
                     else:
                         kind, text = K_LABEL, sval
                 if kind is None:
@@ -497,7 +641,7 @@ def build_page(sheet, pid, title, opts):
                 bg = recolour_fill(fill)
                 if bg:
                     st["bg"] = bg
-                if fcol and fcol != "000000":
+                if fcol and fcol != "000000" and f"{L(c)}{r}" not in placeholders:  # typed text is not grey
                     st["c"] = FONT_MAP.get(fcol, fcol)
                 if font is not None:
                     if font.b:
@@ -598,7 +742,72 @@ def build_page(sheet, pid, title, opts):
         blocks.append(build_block(bc1, bc2, br1, br2))
 
     page = {"id": pid, "title": title, "sheet": sheet, "styles": styles, "blocks": blocks}
+    inputs = {rec[6] for blk in blocks for rec in blk["cells"] if rec[5] == K_INPUT and len(rec) > 6}
+    for ref, hint in FIELD_HINTS.get(sheet, {}).items():
+        if ref in inputs:
+            placeholders[ref] = hint
+    if opts.get("calc"):
+        calc = weight_formulas(ws, inputs, MANUAL_TOTALS.get(sheet, {}))
+        if calc:
+            page["calc"] = calc
+            stats["calc"] = len(calc)
+    if placeholders:
+        page["ph"] = placeholders
     return page, stats
+
+
+# tW = if(Man="", # * Auto, # * Man)   ->  ["w", #, Man, Auto]
+WEIGHT_RE = re.compile(r'^=IF\(([A-Z]+\d+)="",([A-Z]+\d+)\*([A-Z]+\d+),\2\*\1\)$', re.I)
+SUM_RE = re.compile(r"^=SUM\((.+)\)$", re.I)
+RANGE_RE = re.compile(r"^([A-Z]+)(\d+)(?::([A-Z]+)(\d+))?$", re.I)
+
+
+def weight_formulas(ws, inputs, manual_for):
+    """The weight formulas of a page, for the cells that are fields: {ref: [op, ...]}.
+    ["w", #, Man, Auto]                tW = # x Man, or # x Auto when Man is empty
+    ["sum", tW refs...]                Total Weight = SUM of a tW column
+    ["enc", per, coins, [[man, total]...]]
+                                       Enc. Total = SUM of Total Weights (or of the manual weight next
+                                       to one) + the coins on person, `per` coins to the pound"""
+    found = {}
+    for row in ws.iter_rows():
+        for cell in row:
+            if isinstance(cell.value, str) and cell.value.startswith("="):
+                found[cell.coordinate] = cell.value.replace("$", "").replace(" ", "")
+    calc = {}
+    for ref, f in found.items():
+        m = WEIGHT_RE.match(f)
+        if m and ref in inputs:
+            man, n, auto = (x.upper() for x in m.groups())
+            calc[ref] = ["w", n, man, auto]
+
+    def fields_in(arg):
+        m = RANGE_RE.match(arg)
+        if not m:
+            return None
+        ca, ra = CI(m.group(1).upper()), int(m.group(2))
+        cb, rb = (CI(m.group(3).upper()), int(m.group(4))) if m.group(3) else (ca, ra)
+        return [f"{L(c)}{r}" for r in range(ra, rb + 1) for c in range(ca, cb + 1) if f"{L(c)}{r}" in inputs]
+
+    sums = {}
+    for ref, f in found.items():
+        m = SUM_RE.match(f)
+        if m and ref in inputs:
+            parts = [fields_in(a) for a in m.group(1).split(",")]
+            if all(p is not None for p in parts):
+                sums[ref] = [x for p in parts for x in p]
+    kind = lambda x: calc[x][0] if x in calc else None
+    for ref, refs in sums.items():
+        if refs and all(kind(x) == "w" for x in refs):
+            calc[ref] = ["sum"] + refs
+    for ref, refs in sums.items():
+        if ref in calc:
+            continue
+        totals = [x for x in refs if kind(x) == "sum"]
+        coins = [x for x in refs if kind(x) is None]
+        if totals and len(totals) + len(coins) == len(refs):
+            calc[ref] = ["enc", COINS_PER_LB, coins, [[manual_for.get(t), t] for t in totals]]
+    return calc
 
 os.makedirs(os.path.join(OUT, "layouts"), exist_ok=True)
 index = []

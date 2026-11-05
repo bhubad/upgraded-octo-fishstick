@@ -1,5 +1,5 @@
 // Runs invisibly for every player while the extension is enabled: adds the token context-menu entry.
-import { MENU_ID, loadOBR, whenReady, extUrl, openSheet } from "./common.js?v=1.2.0";
+import { MENU_ID, loadOBR, whenReady, extUrl, openSheet } from "./common.js?v=1.4.0";
 
 const OBR = await loadOBR();
 await whenReady(OBR, 120000);

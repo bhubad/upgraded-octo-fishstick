@@ -1,15 +1,15 @@
 {
   "name": "OSRIC Character Sheet",
-  "version": "1.2.0",
+  "version": "1.4.0",
   "manifest_version": 1,
   "description": "View and edit OSRIC character sheets saved on tokens, laid out like FlacoAlto's 1st Edition / OSRIC spreadsheet.",
-  "icon": "/upgraded-octo-fishstick/icon.svg",
+  "icon": "/icon.svg",
   "action": {
     "title": "OSRIC Character Sheets",
-    "icon": "/upgraded-octo-fishstick/icon.svg",
-    "popover": "/upgraded-octo-fishstick/popover.html",
+    "icon": "/icon.svg",
+    "popover": "/popover.html",
     "width": 360,
     "height": 480
   },
-  "background_url": "/upgraded-octo-fishstick/background.html"
+  "background_url": "/background.html"
 }

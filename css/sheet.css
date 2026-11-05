@@ -179,6 +179,12 @@ button:focus-visible { outline: 2px solid var(--obr-primary); outline-offset: 1p
 .grid textarea.f:focus { overflow: auto; }
 .grid .f:hover { box-shadow: inset 0 0 0 1px rgba(86, 146, 169, 0.8); }
 .grid .f:focus, .grid .k:focus-within { box-shadow: inset 0 0 0 2px #044568; position: relative; z-index: 3; }
+.grid .f::placeholder { color: #93a3af; opacity: 1; }
+.grid .f.calc { cursor: pointer; }
+.grid .f.calc:hover, .grid .f.calc:focus { box-shadow: none; }
+.grid .f.calc.unused { color: #93a3af; text-decoration: line-through; }
+.grid .f.calc.flash { animation: calc-flash 0.7s ease-out; }
+@keyframes calc-flash { from { background-color: #9dcddc; } to { background-color: transparent; } }
 .grid .k { display: flex; cursor: pointer; }
 .grid .k input { margin: 0; width: 13px; height: 13px; accent-color: #044568; cursor: pointer; }
 .grid .free { font-family: "Aptos Narrow", "SheetNarrow", "Arial Narrow", sans-serif; font-size: 14.67px; z-index: 1; }
